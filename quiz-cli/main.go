@@ -31,27 +31,33 @@ func main() {
 	if err != nil {
 		os.Exit(1)
 	}
-	problems := parseRecords(records)
+
 	inputReader := bufio.NewReader(os.Stdin)
+	answerChan := make(chan string)
+	go func() {
+		for {
+			input, err := inputReader.ReadString('\n')
+			if err != nil {
+				close(answerChan)
+				return
+			}
+			answerChan <- strings.TrimSpace(input)
+		}
+	}()
+
+	problems := parseRecords(records)
 	t := time.NewTimer(time.Second * time.Duration(*timeLimit))
 	correct := 0
 	for i, p := range problems {
 		fmt.Printf("Problem #%d %s=", i, p.q)
-
-		answerChan := make(chan string)
-		go func() {
-			input, err := inputReader.ReadString('\n')
-			if err != nil {
-				fmt.Println("erroring")
-			}
-			answerChan <- strings.TrimSpace(input)
-		}()
-
 		select {
 		case <-t.C:
 			fmt.Printf("\nYou've got %d right out of %d.\n", correct, len(records))
 			return
-		case answer := <-answerChan:
+		case answer, ok := <-answerChan:
+			if !ok {
+				fmt.Println("Input closed")
+			}
 			if answer == p.a {
 				correct++
 			}
