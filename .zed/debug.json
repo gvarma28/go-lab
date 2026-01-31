@@ -1,0 +1,10 @@
+[
+  {
+    "label": "url-shortener",
+    "adapter": "Delve",
+    "request": "launch",
+    "mode": "debug",
+    "program": "$ZED_WORKTREE_ROOT/url-shortener/main",
+    "cwd": "$ZED_WORKTREE_ROOT/url-shortener",
+  },
+]
