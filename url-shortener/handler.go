@@ -1,10 +1,16 @@
 package urlshort
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"gopkg.in/yaml.v2"
 )
+
+type schema struct {
+	Path string `yaml:"path" json:"path"`
+	Url  string `yaml:"url" json:"url"`
+}
 
 func MapHandler(pathsToUrls map[string]string, fallback http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -17,6 +23,14 @@ func MapHandler(pathsToUrls map[string]string, fallback http.Handler) http.Handl
 	}
 }
 
+func JSONHandler(jsonData []byte, fallback http.Handler) (http.HandlerFunc, error) {
+	pathsToUrls, err := parseJson(jsonData)
+	if err != nil {
+		return nil, err
+	}
+	return MapHandler(pathsToUrls, fallback), nil
+}
+
 func YAMLHandler(yml []byte, fallback http.Handler) (http.HandlerFunc, error) {
 	pathsToUrls, err := parseYaml(yml)
 	if err != nil {
@@ -26,12 +40,7 @@ func YAMLHandler(yml []byte, fallback http.Handler) (http.HandlerFunc, error) {
 }
 
 func parseYaml(yml []byte) (map[string]string, error) {
-	type yamlSchema struct {
-		Path string `yaml:"path"`
-		Url  string `yaml:"url"`
-	}
-
-	var parsedYaml []yamlSchema
+	var parsedYaml []schema
 	err := yaml.Unmarshal(yml, &parsedYaml)
 	if err != nil {
 		return nil, err
@@ -39,6 +48,20 @@ func parseYaml(yml []byte) (map[string]string, error) {
 
 	urlMap := make(map[string]string)
 	for _, v := range parsedYaml {
+		urlMap[v.Path] = v.Url
+	}
+	return urlMap, nil
+}
+
+func parseJson(jsonData []byte) (map[string]string, error) {
+	var parsedJson []schema
+	err := json.Unmarshal(jsonData, &parsedJson)
+	if err != nil {
+		return nil, err
+	}
+
+	urlMap := make(map[string]string)
+	for _, v := range parsedJson {
 		urlMap[v.Path] = v.Url
 	}
 	return urlMap, nil

@@ -6,19 +6,39 @@ import (
 	"testing"
 )
 
-func TestMapHandler(t *testing.T) {
-	pathsToUrls := map[string]string{
-		"/go":     "https://golang.org",
-		"/github": "https://github.com",
-	}
+var yamlMockData []byte = []byte(`
+- path: /go
+  url: https://golang.org
+- path: /github
+  url: https://github.com
+`)
 
+var mapMockData = map[string]string{
+	"/go":     "https://golang.org",
+	"/github": "https://github.com",
+}
+
+var jsonMockData []byte = []byte(`
+[
+  {
+    "path": "/github",
+    "url": "https://github.com/gvarma28"
+  },
+  {
+    "path": "/linkedin",
+    "url": "https://www.linkedin.com/in/gvarma28/"
+  }
+]
+`)
+
+func TestMapHandler(t *testing.T) {
 	fallbackCalled := false
 	fallback := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fallbackCalled = true
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := MapHandler(pathsToUrls, fallback)
+	handler := MapHandler(mapMockData, fallback)
 
 	t.Run("redirects when path exists", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/go", nil)
@@ -72,13 +92,7 @@ func TestYAMLHandler(t *testing.T) {
 	})
 
 	t.Run("handles valid yaml", func(t *testing.T) {
-		yaml := []byte(`
-- path: /go
-  url: https://golang.org
-- path: /github
-  url: https://github.com
-`)
-		handler, err := YAMLHandler(yaml, fallback)
+		handler, err := YAMLHandler(yamlMockData, fallback)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -108,11 +122,7 @@ func TestYAMLHandler(t *testing.T) {
 	})
 
 	t.Run("uses fallback for unknown path", func(t *testing.T) {
-		yaml := []byte(`
-- path: /go
-  url: https://golang.org
-`)
-		handler, err := YAMLHandler(yaml, fallback)
+		handler, err := YAMLHandler(yamlMockData, fallback)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -135,13 +145,7 @@ func TestYAMLHandler(t *testing.T) {
 
 func TestParseYaml(t *testing.T) {
 	t.Run("parses valid yaml", func(t *testing.T) {
-		yaml := []byte(`
-- path: /go
-  url: https://golang.org
-- path: /github
-  url: https://github.com
-`)
-		result, err := parseYaml(yaml)
+		result, err := parseYaml(yamlMockData)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -178,6 +182,116 @@ func TestParseYaml(t *testing.T) {
 
 		if len(result) != 0 {
 			t.Errorf("expected empty map, got %d entries", len(result))
+		}
+	})
+}
+
+func TestJSONHandler(t *testing.T) {
+	fallback := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("fallback"))
+	})
+
+	t.Run("handles valid json", func(t *testing.T) {
+		handler, err := JSONHandler(jsonMockData, fallback)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/github", nil)
+		rr := httptest.NewRecorder()
+
+		handler.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusFound {
+			t.Errorf("expected status %d, got %d", http.StatusFound, rr.Code)
+		}
+
+		location := rr.Header().Get("Location")
+		if location != "https://github.com/gvarma28" {
+			t.Errorf("expected redirect to %q, got %q", "https://github.com/gvarma28", location)
+		}
+	})
+
+	t.Run("returns error for invalid json", func(t *testing.T) {
+		invalidJson := []byte(`{"go": testing}`)
+
+		_, err := JSONHandler(invalidJson, fallback)
+		if err == nil {
+			t.Error("expected error for invalid yaml")
+		}
+	})
+
+	t.Run("uses fallback for unknown path", func(t *testing.T) {
+		handler, err := JSONHandler(jsonMockData, fallback)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/unknown", nil)
+		rr := httptest.NewRecorder()
+
+		handler.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected status %d, got %d", http.StatusOK, rr.Code)
+		}
+
+		body := rr.Body.String()
+		if body != "fallback" {
+			t.Errorf("expected body %q, got %q", "fallback", body)
+		}
+	})
+}
+
+func TestParseJson(t *testing.T) {
+	t.Run("parses valid json", func(t *testing.T) {
+		result, err := parseYaml(yamlMockData)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(result) != 2 {
+			t.Errorf("expected 2 entries, got %d", len(result))
+		}
+
+		if result["/go"] != "https://golang.org" {
+			t.Errorf("expected /go to map to https://golang.org, got %q", result["/go"])
+		}
+
+		if result["/github"] != "https://github.com" {
+			t.Errorf("expected /github to map to https://github.com, got %q", result["/github"])
+		}
+	})
+
+	t.Run("returns error for invalid json", func(t *testing.T) {
+		invalidJson := []byte(`{invalid`)
+
+		_, err := parseJson(invalidJson)
+		if err == nil {
+			t.Error("expected error for invalid json")
+		}
+	})
+
+	t.Run("handles empty json array", func(t *testing.T) {
+		json := []byte(`[]`)
+
+		result, err := parseJson(json)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(result) != 0 {
+			t.Errorf("expected empty map, got %d entries", len(result))
+		}
+	})
+
+	t.Run("handles empty json", func(t *testing.T) {
+		json := []byte(``)
+
+		_, err := parseJson(json)
+		if err == nil {
+			t.Error("expected error for invalid json")
 		}
 	})
 }
